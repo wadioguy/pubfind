@@ -1,0 +1,13 @@
+{
+  "name": "Pub Find",
+  "short_name": "PubFind",
+  "description": "Find nearby pubs with opening hours and ratings",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#f2c94c",
+  "background_color": "#ffffff",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
