@@ -1,10 +1,13 @@
 {
   "compilerOptions": {
-    ...
-    "typeRoots": ["./types", "./node_modules/@types"]
+    "baseUrl": ".",
+    "paths": {
+      "*": ["types/*"]
+    }
   },
-  ...
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "types"]
 }
+
 
 {
   "compilerOptions": {
