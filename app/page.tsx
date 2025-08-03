@@ -4,11 +4,14 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
+import type { PubMapHandle } from "./PubMap";
 
 const Map = dynamic(() => import("./PubMap"), { ssr: false });
 
 export default function Home() {
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
   const [address, setAddress] = useState("");
   const [pubs, setPubs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -16,14 +19,19 @@ export default function Home() {
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [radius, setRadius] = useState(3000);
   const fizzSoundRef = useRef<HTMLAudioElement | null>(null);
+  const mapRef = useRef<PubMapHandle | null>(null);
 
   const GEO_KEY = "6d1b8643a80b4d76a4c5048d24b21b84";
 
   // Get GPS
   const getCurrentLocation = () => {
-    if (!navigator.geolocation) return setError("Geolocation not supported");
+    if (!navigator.geolocation)
+      return setError("Geolocation not supported in this browser");
     navigator.geolocation.getCurrentPosition(
-      (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => {
+        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setError("");
+      },
       () => setError("Could not fetch GPS location")
     );
   };
@@ -34,7 +42,9 @@ export default function Home() {
     setError("");
     try {
       const res = await fetch(
-        `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(address)}&apiKey=${GEO_KEY}`
+        `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(
+          address
+        )}&apiKey=${GEO_KEY}`
       );
       const json = await res.json();
       const feat = json.features?.[0]?.properties;
@@ -45,25 +55,41 @@ export default function Home() {
     }
   };
 
-  // Fetch pubs
+  // Fetch pubs when location or radius changes
   useEffect(() => {
     if (!location) return;
     setLoading(true);
     setError("");
     fetch(`/api/places?lat=${location.lat}&lng=${location.lng}&radius=${radius}`)
       .then((r) => r.json())
-      .then(setPubs)
+      .then((data) => {
+        setPubs(data);
+      })
       .catch(() => setError("Error fetching pubs"))
       .finally(() => setLoading(false));
   }, [location, radius]);
 
+  const filteredPubs = pubs.filter((p) => {
+    const openNow = p.opening_hours?.open_now;
+    return !openNowOnly || openNow === true;
+  });
+
+  const handleListClick = (pub: any) => {
+    mapRef.current?.flyToPub(pub);
+  };
+
   return (
     <main className="p-4 max-w-5xl mx-auto text-center font-sans">
-      {/* Only these beer emojis bounce */}
+      {/* beer bounce animation */}
       <style jsx>{`
         @keyframes bounce {
-          0%, 100% { transform: translateY(0); }
-          50%      { transform: translateY(-10px); }
+          0%,
+          100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-10px);
+          }
         }
         .beer-bounce {
           display: inline-block;
@@ -90,7 +116,7 @@ export default function Home() {
         </div>
       ) : (
         <>
-          {/* Legend */}
+          {/* Legend shown only once location is known */}
           <div className="flex justify-center gap-6 mb-6 text-lg">
             <div className="flex items-center gap-1">
               <span className="text-green-600">✅</span> <span>Open Now</span>
@@ -163,58 +189,61 @@ export default function Home() {
           {!loading && !error && (
             <div className="flex flex-col md:flex-row gap-6 mt-6">
               <div className="flex-1">
-                {pubs
-                  .filter((p) => {
-                    const openNow = p.opening_hours?.open_now;
-                    return !openNowOnly || openNow === true;
-                  })
-                  .map((pub) => {
-                    const opening = pub.opening_hours || { open_now: null, text: [] };
-                    const hoursArr = Array.isArray(opening.text)
-                      ? opening.text
-                      : opening.text
-                      ? [opening.text]
-                      : [];
-                    const openNow = opening.open_now;
-                    const rate = pub.rate ?? 0;
-                    const rounded = rate.toFixed(1);
-                    const stars = rate
-                      ? "★".repeat(Math.round(rate)).padEnd(5, "☆")
-                      : "☆☆☆☆☆";
+                {filteredPubs.map((pub) => {
+                  const opening = pub.opening_hours || {
+                    open_now: null,
+                    text: [],
+                  };
+                  const hoursArr = Array.isArray(opening.text)
+                    ? opening.text
+                    : opening.text
+                    ? [opening.text]
+                    : [];
+                  const openNow = opening.open_now;
+                  const rate = pub.rate ?? 0;
+                  const rounded = rate.toFixed(1);
+                  const stars = rate
+                    ? "★".repeat(Math.round(rate)).padEnd(5, "☆")
+                    : "☆☆☆☆☆";
 
-                    return (
-                      <div
-                        key={pub.place_id}
-                        className="bg-white rounded-lg shadow p-4 mb-4 text-left"
-                      >
-                        <h2 className="text-xl font-semibold flex items-center gap-2">
-                          {pub.name}
-                          {openNow === true && <span className="text-green-600">✅</span>}
-                          {openNow === false && <span className="text-red-600">❌</span>}
-                        </h2>
-                        <p className="text-gray-700">{pub.formatted}</p>
-                        <p className="text-sm text-gray-500">
-                          {(pub.distance / 1000).toFixed(2)} km away
-                        </p>
-                        {hoursArr.length > 0 && (
-                          <p className="text-gray-600 text-sm mt-1">
-                            Hours: {hoursArr.join("; ")}
-                          </p>
+                  return (
+                    <div
+                      key={pub.place_id || pub.properties?.place_id}
+                      className="bg-white rounded-lg shadow p-4 mb-4 text-left cursor-pointer"
+                      onClick={() => handleListClick(pub)}
+                    >
+                      <h2 className="text-xl font-semibold flex items-center gap-2">
+                        {pub.name || pub.properties?.name}
+                        {openNow === true && (
+                          <span className="text-green-600">✅</span>
                         )}
-                        <p className="text-yellow-500 text-lg font-bold mt-2">
-                          {stars} {rounded}
+                        {openNow === false && (
+                          <span className="text-red-600">❌</span>
+                        )}
+                      </h2>
+                      <p className="text-gray-700">{pub.formatted}</p>
+                      <p className="text-sm text-gray-500">
+                        {(pub.distance / 1000).toFixed(2)} km away
+                      </p>
+                      {hoursArr.length > 0 && (
+                        <p className="text-gray-600 text-sm mt-1">
+                          Hours: {hoursArr.join("; ")}
                         </p>
-                      </div>
-                    );
-                  })}
+                      )}
+                      <p className="text-yellow-500 text-lg font-bold mt-2">
+                        {stars} {rounded}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
               <div className="flex-1 h-[500px]">
                 <Map
+                  ref={(r: any) => {
+                    mapRef.current = r;
+                  }}
                   center={location}
-                  pubs={pubs.filter((p) => {
-                    const openNow = p.opening_hours?.open_now;
-                    return !openNowOnly || openNow === true;
-                  })}
+                  pubs={filteredPubs}
                 />
               </div>
             </div>
